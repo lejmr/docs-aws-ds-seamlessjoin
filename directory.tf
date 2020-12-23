@@ -1,8 +1,11 @@
 resource "aws_directory_service_directory" "simpleds" {
-  name     = "ad.exaple.com"
-  password = "SuperSecretPassw0rd"
+  name     = var.directory_name
+  password = "AdPassw0rd"
   size     = "Small"
   type     = "SimpleAD"
+  // In case MS AD 
+  // type = "MicrosoftAD"
+  short_name = var.short_name
 
   vpc_settings {
     vpc_id     = module.vpc.vpc_id

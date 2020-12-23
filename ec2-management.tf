@@ -95,9 +95,14 @@ resource "aws_instance" "management" {
   subnet_id              = module.vpc.public_subnets[0]
   iam_instance_profile   = aws_iam_instance_profile.domain_joined.name
   user_data              = data.template_file.ec2-management.rendered
+  key_name               = aws_key_pair.sshkey.key_name
   tags = {
     Name = "Management node"
   }
+
+  depends_on = [
+    aws_vpc_dhcp_options_association.dns_resolver
+  ]
 }
 
 resource "aws_ssm_association" "win-join" {
@@ -110,6 +115,8 @@ resource "aws_ssm_association" "win-join" {
 
   parameters = {
     directoryId   = aws_directory_service_directory.simpleds.id
-    directoryName = "ad.exaple.com"
+    directoryName = var.directory_name
+    // dnsIpAddresses = join("\n", aws_directory_service_directory.simpleds.dns_ip_addresses)
+    // dnsIpAddresses = aws_directory_service_directory.simpleds.dns_ip_addresses
   }
 }
