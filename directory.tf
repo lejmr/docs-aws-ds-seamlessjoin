@@ -1,6 +1,6 @@
 resource "aws_directory_service_directory" "simpleds" {
   name     = var.directory_name
-  password = "AdPassw0rd"
+  password = var.directory_password
   size     = "Small"
   type     = "SimpleAD"
   // In case MS AD 
