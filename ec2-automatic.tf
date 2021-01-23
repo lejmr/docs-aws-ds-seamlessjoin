@@ -15,4 +15,8 @@ EOF
     Name = "lubuntu${count.index}.${var.directory_name}"
     "Domain:Join" = "true"
   }
+
+  depends_on = [
+    aws_lambda_permission.allow_cloudwatch_to_call_handle_function
+  ]
 }
