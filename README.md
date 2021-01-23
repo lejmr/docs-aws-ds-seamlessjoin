@@ -1,5 +1,16 @@
 # Directory service - secure
 
+- [Directory service - secure](#directory-service---secure)
+  - [Motivation](#motivation)
+  - [A closer look at the joining document](#a-closer-look-at-the-joining-document)
+  - [A closer look at DNS records resolution](#a-closer-look-at-dns-records-resolution)
+  - [Effortless computer management](#effortless-computer-management)
+    - [Automation of EC2 registration and deregistration from AD](#automation-of-ec2-registration-and-deregistration-from-ad)
+    - [Potential improvements](#potential-improvements)
+  - [How to use this repository?](#how-to-use-this-repository)
+  - [Troubleshooting](#troubleshooting)
+    - [Is the EC2 instance really joined to the AD?](#is-the-ec2-instance-really-joined-to-the-ad)
+  - [Extra sources](#extra-sources)
 ## Motivation
 
 The ultimate goal of this blog is to conservate all the knowledge about managing Active Directory (AD) domain in the cloud I gathered over couple of past months. Most of the information are transferable to on premise, e.g., GNU\\Linux and AD, but Amazon AWS Directory services.
@@ -160,7 +171,7 @@ terraform apply
 
 After everything gets installed the default `Administrator` account is created within AD. Remote desktop is the tool for loggin in to the management node for adding new users, and monitoring how registration works or not.
 
-### Troubleshooting
+## Troubleshooting
 
 Let's have this terraform project deployed, so the 
 
@@ -168,7 +179,7 @@ Let's have this terraform project deployed, so the
 
 **Short domain name**: EXAMPLE
 
-#### Is the EC2 instance really joined to the AD?
+### Is the EC2 instance really joined to the AD?
 
 Good question, so first of all make sure you know IP address and EC2 InstanceId of the server which should be joined to the AD. Test if you can login using your AD credentials, or just *EXAMPLE\Administrator* account which for *ssh* is *administrator@ad.domain.test*.
 
@@ -242,7 +253,7 @@ uid=555000500(administrator@ad.domain.test) gid=555000513(domain users@ad.domain
 
 
 
-# Extra sources
+## Extra sources
 
 * https://tk-sls.de/wp/5180
 * https://lucanuscervus-notes.readthedocs.io/en/latest/Windows/AD%20-%20Computer%20Accounts/
