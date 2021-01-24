@@ -36,13 +36,14 @@ Bear in mind that AWS SSM documents are only triggered by creating a document *a
 
 ## A closer look at the joining document
 
-AWS uses the marketing term *[Seamless](https://docs.aws.amazon.com/directoryservice/latest/admin-guide/launching_instance.html)* joining where they emphesize the fact an user does NOT have to login onto the server and perform the joining procedure manually. How is that done you ask? First of all there is no magic. The necessary steps are automated using AWS SSM Run Document scripts which are executed on the EC2 instance directly. It means the sensitive data has to be handled on the AWS side without permanent access of EC2 instance to the joining credentials. The *AWS-JoinDirectoryServiceDomain* document utilizes *aws:domainJoin* AWS SSM step which works on both Microsoft and Linux EC2 instances. However, the mechanism is totally different.
+AWS uses the marketing term *[Seamless](https://docs.aws.amazon.com/directoryservice/latest/admin-guide/launching_instance.html)* joining where they emphasize the fact a user does NOT have to log in onto the server and perform the joining procedure manually. How is that done, you ask? First of all, there is no magic. The necessary steps are automated using AWS SSM Run Document scripts executed on the EC2 instance directly. It means the sensitive data must be handled on the AWS side without permanent access of the EC2 instance to the joining credentials. The *AWS-JoinDirectoryServiceDomain* document utilizes *aws:domainJoin* AWS SSM step, which works on both Microsoft and Linux EC2 instances. However, the mechanism is different.
 
-The Windows joining mechanism uses one time password to a [pre-generated computer object](https://docs.aws.amazon.com/cli/latest/reference/ds/create-computer.html) which is created by the joining EC2 instance thanks to the *AmazonSSMDirectoryServiceAccess* AWS Identity and Access Management ([IAM](https://aws.amazon.com/iam/)) policy. The Linux joining processes, however, requires pre-shared credentials that are stored in AWS SecretManager. The reason for that is the official document tends to support inter-domain trust [mechanism](https://github.com/aws/amazon-ssm-agent/pull/324) hence they need to use [Winbind](https://www.samba.org/samba/docs/current/man-html/winbindd.8.html) which sadly does NOT suport joining using one-time passwords. The alternative to Winbind[3](https://www.samba.org/samba/docs/current/man-html/winbindd.8.html) is [SSSD](https://sssd.io/) which has got the domain trust under active [development](https://sssd.io/docs/design_pages/subdomain_configuration.html). Hopefully, in the close future the SSSD will replace Winbind, so even official joining AWS SSM document wont require password stored in SecretManager.
+The Windows joining mechanism uses the one-time password to a [pre-generated computer object](https://docs.aws.amazon.com/cli/latest/reference/ds/create-computer.html) which is created by the joining EC2 instance thanks to the *AmazonSSMDirectoryServiceAccess* AWS Identity and Access Management ([IAM](https://aws.amazon.com/iam/)) policy. The Linux joining processes, however, requires pre-shared credentials stored in AWS SecretManager. The reason for that is the official run document tends to support inter-domain trust [mechanism](https://github.com/aws/amazon-ssm-agent/pull/324); hence, they need to use [Winbind](https://www.samba.org/samba/docs/current/man-html/winbindd.8.html) which sadly does NOT support joining using one-time passwords. The alternative to Winbind[3](https://www.samba.org/samba/docs/current/man-html/winbindd.8.html) is [SSSD](https://sssd.io/) which has got the domain trust underactive [development](https://sssd.io/docs/design_pages/subdomain_configuration.html). Hopefully, soon the SSSD will replace Winbind, so even official joining AWS SSM document will not require password stored in SecretManager.
 
 ## A closer look at DNS records resolution
 
-The joining procedure requires [some](https://www.tecmint.com/manage-samba4-dns-group-policy-from-windows/) DNS records in place, so the joining mechanism can properly discover all necessary components, e.g, LDAP and Kerberos interface. Therefore, VPC DHCP options need to be extended, so IP addess of domain controllers are used by all computers for the DNS resolution.
+
+The joining procedure requires [some](https://www.tecmint.com/manage-samba4-dns-group-policy-from-windows/) DNS records, so the joining mechanism can properly discover all necessary components, e.g., LDAP and Kerberos interface. Therefore, VPC DHCP options need to be extended, so all computers use domain controllers' IP addresses for the DNS resolution.
 
 ```
 resource "aws_vpc_dhcp_options" "dns_resolver" {
@@ -55,11 +56,11 @@ resource "aws_vpc_dhcp_options_association" "dns_resolver" {
 }
 ```
 
-Interestingly, this DHCP configuration is perfectly fine for deployments in one region or to geographically close regions, e.g., multiple VPCs in the same region. Such DHCP options can cause some issues for cross-ocean deployments. The main problem here is that all DNS traffic is centralized to domain controllers; which means, Route 53 zones assignment for remote regions are not considered, etc., In other words, all VPCs will resolve the same Route 53 zones, as VPC where AWS Directory service is deployed to. Additionally, failure of domain controller can parallize whole network. The ideal solution is if every single EC2 instance was using its regional local DNS resolver, i.e., .2 address, i.e., 169.254.169.253, and the domain specific traffic was forwwarded to domain controller only.
+Interestingly, this DHCP configuration is suitable for deployments in one region or geographically close regions, e.g., multiple VPCs in the same region. Such DHCP options can cause some issues for cross-ocean deployments. The main problem here is that all DNS traffic is centralized to domain controllers, which means Route 53 zones assignment for remote regions are not considered, etc., In other words, all VPCs will resolve the same Route 53 zones, as VPC where the AWS Directory service is deployed. Additionally, a failure of the domain controller can paralyze the whole network. The ideal solution is if every single EC2 instance was using its regional local DNS resolver, i.e., .2 address, i.e., 169.254.169.253, and the domain-specific traffic was forwarded to the domain controller only.
 
-Such functionality can be delivered via Route 53 Resolver. This is probably the most scallable solution, but it cames with [price](https://aws.amazon.com/route53/pricing/#Route_53_Resolver) and puts strain on the VPC networking.
+Such functionality can be delivered via Route 53 Resolver. This is probably the most scalable solution, but it comes with [price](https://aws.amazon.com/route53/pricing/#Route_53_Resolver) and puts a strain on the VPC networking.
 
-Alternativelly, for Linux centric deployments, as Windows does NOT suppot split DNS resolution, the Linux instances can be configured to use DNSmasq or SystemD-resolver for DNS traffic routing. The DNSmasq is not broadly used for local DNS caching as systemd-resolver in Linux distributions. The example configuration looks like this
+Alternatively, for Linux centric deployments, as Windows does NOT support split DNS resolution, the Linux instances can be configured to use DNSmasq or SystemD-resolver for DNS traffic routing. The DNSmasq is not broadly used for local DNS caching as systemd-resolver in Linux distributions. The example configuration looks like this
 
 ```
 root@server:~# cat /etc/systemd/resolved.conf
@@ -78,36 +79,36 @@ Cache=yes
 
 Subsequently, the configuration can be verified using `systemd-resolve --status` command.
 
-This article will further use the last option. In order to encompase this functionality into joining process, the official AWS SSM Document *AWS-JoinDirectoryServiceDomain* needs to be altered. The modification is stored in *ssm.tf* file. The enclosed modification of original joining document contains steps necessary for password-less joinig process.
+This piece will further use the last option. In order to encompass this functionality into the joining process, the official AWS SSM Document *AWS-JoinDirectoryServiceDomain* needs to be altered. The modification is stored in *ssm.tf* file. The enclosed modification of the original joining document contains steps necessary for the password-less joining process.
 
 ## Effortless computer management
 
-All the previous sections covered the technological bases leading to the moment an Linux system (Ubuntu specifically, but the joining document can be updated for any SystemD based Linux distribution) can be seamlessly joined. The join, however, is triggerd by an user who either selects the directory using the dropdown menu during *Launch instance* or assignings an AWS SSM document to an EC2 instance. The downside of this AWS SSM backed process is that it is actually an manuall process. Manuall processes should be pruned from cloud based deployments as much as possible. Additionally, computer objects remain in AD even after EC2 instances are terminated hence more manuall cleaning work is necessary. The automation of an EC2 instance removal and registration is topic of further sections.
+All the previous sections covered the technological bases leading to the moment a Linux system (Ubuntu specifically, but the joining document can be updated for any SystemD based Linux distribution) can be seamlessly joined. The join, however, is triggerd by an user who either selects the directory using the dropdown menu during *Launch instance* or assignings an AWS SSM document to an EC2 instance. The downside of this AWS SSM-backed process is that it is a manuall process. Manual processes should be pruned from cloud-based deployments as much as possible. Additionally, computer objects remain in AD even after EC2 instances are terminated; hence more manual cleaning work is necessary. The automation of an EC2 instance removal and registration is the topic of further sections.
 
-I personally believe that EC2 instance joing should be controlled by EC2 tags, and should be as simple as possible e.g., assign Domain:Join = True/False tag. 
+EC2 instance joining should be controlled by EC2 tags, and should be as simple as possible, e.g., assign Domain:Join = True/False tag. 
 
 <!-- TODO: Extend the example about joining based on EC2 tag change -->
 
 ### Automation of EC2 registration and deregistration from AD
 
-First let's define expectations and put them on the table. Expected behaviour:
+First, let's define expectations and put them on the table. Expected behavior:
 
-* When a new EC2 instance is started, and the tag "Domain:Join" is set to True, the EC2 instances is joined to the AD.
-* When a new EC2 intances is started, but the tag "Domain:Join" is missing or set to False, the EC2 instance is not joined to AD.
+* When a new EC2 instance is started and the tag "Domain:Join" is set to True, the EC2 instances is joined to the AD.
+* When a new EC2 instance is started, but the tag "Domain:Join" is missing or set to False, the EC2 instance does not join AD.
 * When an already joined EC2 instance is terminated, the computer object is removed from AD.
 * When an EC2 instance that is not joined to AD is terminated, no objects are removed from AD.
 
-AWS does not provide such a functionality, but there are services which can be used for particular operations, as were reviewed in the previous sections. It means, all the recalled components need to be somehow "glued" together. The best generall purpose glue is AWS Lambda in the Amazon AWS environment, so lets use it. AWS Lambda allows implementation of a logic using just a code without too much wory where the code is going to run. The only missing piece is the automation triggering when EC2 instance state change happens. Simple answer here, AWS CloudWatch [Events](https://docs.aws.amazon.com/AmazonCloudWatch/latest/events/WhatIsCloudWatchEvents.html).
+AWS does not provide such a functionality, but other services can be used for particular operations, and they were reviewed in the previous sections. It means all the recalled components need to be somehow "glued" together. The best general purpose glue is AWS Lambda in the Amazon AWS environment, so let's use it. AWS Lambda allows the implementation of a logic using just a code without worrying about where the code will run. The only missing piece is the automation triggering when EC2 instance state change happens. Simple answer here, AWS CloudWatch [Events](https://docs.aws.amazon.com/AmazonCloudWatch/latest/events/WhatIsCloudWatchEvents.html).
 
 The whole chain is depicted in the following diagram. 
 
 ![Service chain necessary for automatic registration and deregistration](files/highlevel-joining.png)
 
-Notably, the path forming the computer deregistation terminates by the step using LDAP protocol directly. The deregistration is perfomed not from the EC2 instance using an AWS API call, but from the runtime environment of the AWS Lambda function, as AWS does not provide direct interaction with AD object via its API. In other words, the AWS Lambda function needs and elastic network interface (ENI) attached to a subnet which has IP connectivity with AD.
+Notably, the path forming the computer deregistration terminates by the step using LDAP protocol directly. The deregistration is perfomed not from the EC2 instance using an AWS API call, but from the AWS Lambda function's runtime environment, as AWS does not provide direct interaction with AD object via its API. In other words, the AWS Lambda function needs an elastic network interface (ENI) attached to a subnet that has IP connectivity with AD.
 
-A computer object removal is priviledged operation, so the LDAP call needs to be authenticated. Storing non-volatile credentials in AWS Lambdas is a bad pattern, so the credentials should be stored in a secret store, e.g., AWS SecretManager. To simplify integration with other AWS processes, this process tends to stick with naming conventions used by [AWS](https://docs.aws.amazon.com/directoryservice/latest/admin-guide/seamlessly_join_linux_instance.html) that stores credentials in AWS SecretManager under path `aws/directory-services/d-xxxxxxxxx/seamless-domain-join`.
+A computer object removal is a privileged operation, so the LDAP call needs to be authenticated. Storing credentials in AWS Lambdas is wrong, so the credentials should be stored in a secret store, e.g., AWS SecretManager. To simplify integration with other AWS processes, this process tends to stick with naming conventions used by [AWS](https://docs.aws.amazon.com/directoryservice/latest/admin-guide/seamlessly_join_linux_instance.html) that stores credentials in AWS SecretManager under path `aws/directory-services/d-xxxxxxxxx/seamless-domain-join`.
 
-The computer registration operation is very simple, as the AWS Lambda function only needs to retrieve EC2 instance's metadata using *DescribeInstance* API call. Having the EC2 tag *Domain:Join=True* causes a new AWS SSM association is created. A tiny little catch here. As there is no specific AWS CloudWatch even indicating EC2 instance being created, but states are propageted. The meanigful states are PENDING and RUNNING for triggering EC2 registation. The catch is AD might already contain the computer object, as such an event is triggered by EC2 instance has been start-stopped while created a long time ago. Therefore, the registration process needs to look up to AD to check whether to start the registration process. The process might look like this:
+The computer registration operation is straightforward, as the AWS Lambda function only needs to retrieve EC2 instance's metadata using *DescribeInstance* API call. Having the EC2 tag *Domain:Join=True* causes a new AWS SSM association is created. A tiny little catch here. As there is no specific AWS CloudWatch even indicating EC2 instance being created, but states are propagated. The meaningful states are PENDING and RUNNING for triggering EC2 registration. The catch is AD might already contain the computer object, as such an event is triggered by EC2 instance has been start-stopped while created a long time ago. Therefore, the registration process needs to look up to AD to check whether to start the registration process. The process might look like this:
 
 ```
 procedure Registration
@@ -121,7 +122,7 @@ procedure Registration
   END
 ```
 
-Similarly the deregistration process might look like this:
+Similarly, the deregistration process might look like this:
 
 ```
 procedure DeRegistration
@@ -137,25 +138,25 @@ procedure DeRegistration
 
 That is all.
 
-The actually code is implemented using Python language `function/main.py` and the actually registration to AWS is tackled again by Terraform in `lambda.tf`. Due to the necessary connectivity with AD via LDAP protocol, ENI has to be attached resulting in extra configuration of security groups, etc. The AWS CloudWatch events triggers and integration with the lambda code is formalized in `lambda_ec2trigger.tf`. Additionally, there are a few more `lambda_xxx.tf` files which are tackling some related technicalities. 
+The actual code is implemented using Python language `function/main.py` and the actual registration to AWS is tackled again by Terraform in `lambda.tf`. Due to the necessary connectivity with AD via LDAP protocol, ENI has to be attached, resulting in extra configuration of security groups, etc. The AWS CloudWatch events triggers and integration with the lambda code is formalized in `lambda_ec2trigger.tf`. Additionally, there are a few more `lambda_xxx.tf` files that tackle some related technicalities. 
 
-This lambda function is implemented and delivered as a regular deployment package, but as of Re:Invent 2020 it is possible to deliver the functionality via a container image as well.
+This lambda function is implemented and delivered as a standard deployment package, but as of Re:Invent 2020 it is possible to deliver the functionality via a container image.
 
 
-A tiny little extra functionality is hidden in `lambda_cron.tf` which uses AWS CloudWatch cron-like service for triggering cleaning. This cleaning is practivally, just a workaround to the brittle LDAP interface to AD. Sometimes, the deregistration via LDAP timeouts, so the computer object just resides in AD. The periodical cleaning simply scan all EC2 instances and cross reference them with computer objects in AD. The forgotten computer objects are simply retried to delete.
+A tiny little extra functionality is hidden in `lambda_cron.tf`, which uses AWS CloudWatch cron-like service for triggering cleaning. This cleaning is practically just a workaround to the brittle LDAP interface to AD. Sometimes, the deregistration via LDAP timeouts, so the computer object resides in AD. The periodical cleaning scans all EC2 instances, and cross-reference them with computer objects in AD. The forgotten computer objects are simply retried to delete.
 
 ### Potential improvements
 
-Bear in mind, this implementation is just a proof of concept, so the code is ugly and not really recommendable for production usage. Even though it can be just downloaded, applied, and will work just fine. Nevertheless, 
+Bear in mind this implementation is just a proof of concept, so the code is ugly and not recommendable for production usage. Even though it can be just downloaded, applied, and will work just fine. Nevertheless, 
 
  * This code should be put under module structure
  * Runtime can be converted to either AWS Lambda layer or container image for better reuse
- * For multi-region use the listener should be attached to AWS SQS, so the registration/deregistration code runs in only one region.
+ * For multi-region use, the AWS Lambda function should be deployed only once in the same region as AD. Further, the AWS Lambda function should be attached to AWS SQS where other regions would be dropping the registration/deregistration requests.
  * Use `default_domain_suffix` for sssd.conf for easier logging names, [see](https://gist.github.com/ceagan/bdaa1495272cfb97e40f).
 
 ## How to use this repository?
 
-Technically speaking. This git repository can by just cloned. One needs to add following statement, for connectivity via technical accounts on the created EC2 instances
+Technically speaking, this git repository can be just cloned. One needs to add the following statement for connectivity via technical accounts on the created EC2 instances
 
 ```
 resource "aws_key_pair" "sshkey" {
@@ -171,7 +172,7 @@ terraform plan
 terraform apply
 ```
 
-After everything gets installed the default `Administrator` account is created within AD. Remote desktop is the tool for loggin in to the management node for adding new users, and monitoring how registration works or not.
+After everything gets installed, the default `Administrator` account is created within AD. The remote desktop is the tool for logging in to the management node for adding new users and monitoring how registration works or not.
 
 ## Troubleshooting
 
@@ -183,7 +184,7 @@ Let's have this terraform project deployed, so the
 
 ### Is the EC2 instance really joined to the AD?
 
-Good question, so first of all make sure you know IP address and EC2 InstanceId of the server which should be joined to the AD. Test if you can login using your AD credentials, or just *EXAMPLE\Administrator* account which for *ssh* is *administrator@ad.domain.test*.
+Good question, so first of all, make sure you know IP address and EC2 InstanceId of the server, which should be joined to the AD. Test if you can log in using your AD credentials, or just *EXAMPLE\Administrator* account, which for *ssh* is *administrator@ad.domain.test*.
 
 Lets have an server *i-05b61d6472ddb05d3* with IP address *10.0.101.197*.
 
